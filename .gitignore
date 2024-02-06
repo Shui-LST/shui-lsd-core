@@ -1,0 +1,13 @@
+cache/
+.env
+node_modules
+artifacts
+yarn-error.log
+deployments/
+tmp
+*.sol.gitignore
+out
+cache_forge
+coverage
+coverage.json
+.DS_Store
