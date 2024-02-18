@@ -2,10 +2,10 @@ const { Conflux } = require('js-conflux-sdk');
 const ethers = require('ethers');
 const CORE = require('@uniswap/sdk-core')
 const V2_SDK = require('@uniswap/v2-sdk')
-const { teleAlert } = require('./tele-bot');
 const { Token, CurrencyAmount } = CORE;
 const { Pair, Route, FACTORY_ADDRESS_MAP } = V2_SDK;
 require('dotenv').config();
+const { teleAlert } = require('./tele-bot');
 
 /*
 # Monitor
@@ -22,8 +22,8 @@ const FACTORY_ADDRESS = '0xe2a6f7c0ce4d5d300f97aa7e125455f5cd3342f5'; // swappi 
 FACTORY_ADDRESS_MAP[1030] = FACTORY_ADDRESS;
 
 const cfxClient = new Conflux({
-    // url: 'http://localhost:12537',
-    url: 'https://main.confluxrpc.com',
+    url: 'http://localhost:12537',
+    // url: 'https://main.confluxrpc.com',
     networkId: 1029
 });
 
@@ -46,6 +46,8 @@ async function main () {
         await isPriceNormal();
 
     }, 5 * 60 * 1000);
+
+    await teleAlert('Shui Monitor Started');
 }
 
 main().catch(err => {
