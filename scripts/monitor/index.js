@@ -1,11 +1,15 @@
 const { Conflux } = require('js-conflux-sdk');
 const ethers = require('ethers');
 const CORE = require('@uniswap/sdk-core')
+require('dotenv').config();
+const { teleAlert } = require('./tele-bot');
 const V2_SDK = require('@uniswap/v2-sdk')
 const { Token, CurrencyAmount } = CORE;
 const { Pair, Route, FACTORY_ADDRESS_MAP } = V2_SDK;
-require('dotenv').config();
-const { teleAlert } = require('./tele-bot');
+
+// this is the ABI of the uniswap v2 pair contract
+const uniswapV2poolABI = require('../../tmp/uni-v2-abi.json');
+
 
 /*
 # Monitor
@@ -18,6 +22,9 @@ const { teleAlert } = require('./tele-bot');
 
 const WCFX_ADDRESS = '0x14b2D3bC65e74DAE1030EAFd8ac30c533c976A9b';
 const FACTORY_ADDRESS = '0xe2a6f7c0ce4d5d300f97aa7e125455f5cd3342f5'; // swappi factory address
+const sCFX = new Token(1030, process.env.sCFX, 18, 'sCFX', 'Shui LSD');
+const WCFX = new Token(1030, WCFX_ADDRESS, 18, 'WCFX', 'Wrapped CFX');
+
 // add factory address for network 1030 so that the sdk can work on network 1030
 FACTORY_ADDRESS_MAP[1030] = FACTORY_ADDRESS;
 
@@ -29,12 +36,8 @@ const cfxClient = new Conflux({
 
 const provider = new ethers.JsonRpcProvider('https://evm.confluxrpc.com');
 
-const sCFX = new Token(1030, process.env.sCFX, 18, 'sCFX', 'Shui LSD');
-
-const WCFX = new Token(1030, WCFX_ADDRESS, 18, 'WCFX', 'Wrapped CFX');
-
-// this is the ABI of the uniswap v2 pair contract
-const uniswapV2poolABI = require('../../tmp/uni-v2-abi.json');
+const { abi: scfxAbi } = require('../../artifacts/contracts/espace/sCFX.sol/sCFX.json');
+const sCFXContract = new ethers.Contract(process.env.sCFX, scfxAbi, provider)
 
 async function main () {
     setInterval(async function() {
@@ -120,16 +123,15 @@ async function getPrice(token) {
 
     const route = new Route([pair], WCFX, token)
 
-    // console.log(typeof route.midPrice.toSignificant(6))
-    // console.log(route.midPrice.invert().toSignificant(6))
-    
     return Number(route.midPrice.toSignificant(6));
 }
 
 async function isPriceNormal() {
     let price = await getPrice(sCFX);
     if (price >= 1) {
-        await alert('price', `sCFX price is ${price}`);
+        let ratio = await sCFXContract.ratioDepositedBySupply();
+        let scfxExchangeRatio = Number(ratio.toString()) / 1e9;
+        await alert('price', `sCFX price is ${price}, scfxExchangeRatio is ${scfxExchangeRatio}`);
     } else {
         notifyNormal('price');
     }
