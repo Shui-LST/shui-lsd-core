@@ -93,6 +93,8 @@ contract EVotingEscrow is IVotingEscrow, Ownable, Initializable {
 
         _userLockInfo[msg.sender] = LockInfo(_lockAmount, realUnlockBlock);
         globalLockAmount[realUnlockBlock] += _lockAmount;
+
+        _updateLastUnlockBlock(realUnlockBlock);
     }
 
     /*
@@ -131,6 +133,8 @@ contract EVotingEscrow is IVotingEscrow, Ownable, Initializable {
         
         globalLockAmount[oldUnlockNumber] -= amount;
         globalLockAmount[realUnlockBlock] += amount;
+
+        _updateLastUnlockBlock(realUnlockBlock);
     }
 
     function withdraw(uint256 amount) public {
@@ -271,6 +275,12 @@ contract EVotingEscrow is IVotingEscrow, Ownable, Initializable {
         if (id == 1030) id = 1029;
 
         return id;
+    }
+
+    function _updateLastUnlockBlock(uint256 unlockBlock) internal {
+        if (unlockBlock > lastUnlockBlock) {
+            lastUnlockBlock = unlockBlock;
+        }
     }
 
     // internal functions
