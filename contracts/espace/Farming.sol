@@ -16,6 +16,7 @@ contract Farming is Ownable, Initializable {
         uint256 rewardPerBlock; // reward rate
         uint256 startBlock;
         uint256 endBlock;
+        string name;
     }
 
     struct PoolStakeInfo {
@@ -24,7 +25,7 @@ contract Farming is Ownable, Initializable {
         uint256 totalStaked;
     }
 
-    struct StakeInfo {
+    struct UserStakeInfo {
         uint256 amount;
         uint256 userRewardPerTokenPaid;
         uint256 reward;
@@ -35,8 +36,8 @@ contract Farming is Ownable, Initializable {
     mapping(uint256 => FarmPool) public poolInfo;
     mapping(uint256 => PoolStakeInfo) public poolStakeInfo;
     
-    // user => poolId => StakeInfo
-    mapping(address => mapping(uint256 => StakeInfo)) public userInfo;
+    // user => poolId => UserStakeInfo
+    mapping(address => mapping(uint256 => UserStakeInfo)) public userStakeInfo;
 
     event UserDeposit(address indexed user, uint256 indexed pid, uint256 amount);
     event UserWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
@@ -51,8 +52,8 @@ contract Farming is Ownable, Initializable {
         poolStakeInfo[_pid].lastRewardBlock = lastTimeRewardApplicable(_pid);
 
         if (_user != address(0)) {
-            userInfo[_user][_pid].reward = reward(_user, _pid);
-            userInfo[_user][_pid].userRewardPerTokenPaid = poolStakeInfo[_pid].accRewardPerShare;
+            userStakeInfo[_user][_pid].reward = reward(_user, _pid);
+            userStakeInfo[_user][_pid].userRewardPerTokenPaid = poolStakeInfo[_pid].accRewardPerShare;
         }
 
         _;
@@ -68,16 +69,16 @@ contract Farming is Ownable, Initializable {
         pool.stakeToken.transferFrom(msg.sender, address(this), _amount);
 
         poolStakeInfo[_pid].totalStaked += _amount;
-        userInfo[msg.sender][_pid].amount += _amount;
+        userStakeInfo[msg.sender][_pid].amount += _amount;
 
         emit UserDeposit(msg.sender, _pid, _amount);
     }
 
     function withdraw(uint256 _pid, uint256 _amount) public updateReward(msg.sender, _pid) {
-        require(_amount <= userInfo[msg.sender][_pid].amount, "Farming: not enough balance");
+        require(_amount <= userStakeInfo[msg.sender][_pid].amount, "Farming: not enough balance");
 
         poolStakeInfo[_pid].totalStaked -= _amount;
-        userInfo[msg.sender][_pid].amount -= _amount;
+        userStakeInfo[msg.sender][_pid].amount -= _amount;
 
         FarmPool memory pool = poolInfo[_pid];
         pool.stakeToken.transfer(msg.sender, _amount);
@@ -86,10 +87,10 @@ contract Farming is Ownable, Initializable {
     }
 
     function claim(uint256 _pid) public  updateReward(msg.sender, _pid){
-        require(userInfo[msg.sender][_pid].reward > 0, "Farming: no reward");
+        require(userStakeInfo[msg.sender][_pid].reward > 0, "Farming: no reward");
         
-        uint256 _reward = userInfo[msg.sender][_pid].reward;
-        userInfo[msg.sender][_pid].reward = 0;
+        uint256 _reward = userStakeInfo[msg.sender][_pid].reward;
+        userStakeInfo[msg.sender][_pid].reward = 0;
 
         poolInfo[_pid].rewardToken.transfer(msg.sender, _reward);
 
@@ -97,7 +98,7 @@ contract Farming is Ownable, Initializable {
     }
 
     function reward(address _user, uint256 _pid) public view returns (uint256) {
-        StakeInfo memory sInfo = userInfo[_user][_pid];
+        UserStakeInfo memory sInfo = userStakeInfo[_user][_pid];
         return (
             (
                 sInfo.amount * (rewardPerToken(_pid) - sInfo.userRewardPerTokenPaid)
@@ -138,7 +139,8 @@ contract Farming is Ownable, Initializable {
         address _rewardToken,
         uint256 _totalReward,
         uint256 _startBlock,
-        uint256 _endBlock
+        uint256 _endBlock,
+        string memory _name
     ) public onlyOwner {
         require(_startBlock > block.number, "Farming: invalid start block");
         require(_endBlock > _startBlock, "Farming: invalid end block");
@@ -155,7 +157,8 @@ contract Farming is Ownable, Initializable {
             rewardToken: IERC20(_rewardToken),
             rewardPerBlock: _rewardPerBlock,
             startBlock: _startBlock,
-            endBlock: _endBlock
+            endBlock: _endBlock,
+            name: _name
         });
 
         poolIds.add(_pid);

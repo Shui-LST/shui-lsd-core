@@ -32,7 +32,7 @@ contract FarmingTest is Test {
         // console.log(farming.owner());
 
         rewardToken.approve(address(farming), 1000_000_000 ether);
-        farming.addPool(address(stakeToken), address(rewardToken), 1000 ether, 1000, 2000);
+        farming.addPool(address(stakeToken), address(rewardToken), 1000 ether, 1000, 2000, "test pool");
         
         vm.deal(user1, 1000_000_000 ether);
         vm.deal(user2, 1000_000_000 ether);
@@ -50,7 +50,7 @@ contract FarmingTest is Test {
         vm.roll(startBlock);
         farming.deposit(_pid, 1000 ether);
         
-        (uint amount, uint rewardPerToken, uint reward) = farming.userInfo(user1, _pid);
+        (uint amount, uint rewardPerToken, uint reward) = farming.userStakeInfo(user1, _pid);
         assertEq(amount, 1000 ether);
         // console.log(rewardPerToken, reward);
         
@@ -89,7 +89,7 @@ contract FarmingTest is Test {
         assertEq(farming.reward(user2, _pid), 997 ether / 2);
 
         farming.withdraw(_pid, 999 ether);
-        (uint amount1, ,) = farming.userInfo(user2, _pid);
+        (uint amount1, ,) = farming.userStakeInfo(user2, _pid);
         assertEq(amount1, 1 ether);
 
         vm.stopPrank();
