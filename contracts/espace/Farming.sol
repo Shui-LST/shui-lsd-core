@@ -83,7 +83,7 @@ contract Farming is Ownable, Initializable {
         FarmPool memory pool = poolInfo[_pid];
         pool.stakeToken.transfer(msg.sender, _amount);
 
-        emit  UserWithdraw(msg.sender, _pid, _amount);
+        emit UserWithdraw(msg.sender, _pid, _amount);
     }
 
     function claim(uint256 _pid) public  updateReward(msg.sender, _pid){
