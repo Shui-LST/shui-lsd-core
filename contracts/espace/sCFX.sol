@@ -8,6 +8,7 @@ import {RedeemQueue} from "../utils/RedeemQueue.sol";
 import {IVotingEscrow} from "../interfaces/IVotingEscrow.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ISCFX} from "../interfaces/ISCFX.sol";
+import {IPoSPool} from '../interfaces/IPoSPool.sol';
 
 contract sCFX is ISCFX, ERC20PresetMinterPauserUpgradeable {
     using RedeemQueue for RedeemQueue.Queue;
@@ -15,6 +16,7 @@ contract sCFX is ISCFX, ERC20PresetMinterPauserUpgradeable {
 
     bytes32 constant TOKEN_ADMIN_ROLE = keccak256("TOKEN_ADMIN_ROLE");
     uint256 constant RATIO_BASE = 1000_000_000;
+    string constant POOL_NAME = "Shui LSD";
 
     address public mappedsCFXBridge;
     uint256 public totalDeposited;
@@ -27,6 +29,9 @@ contract sCFX is ISCFX, ERC20PresetMinterPauserUpgradeable {
     RedeemQueue.Queue private _redeemQueue;
 
     address public votingEscrow;
+
+    uint256 private _initialRatio;
+    uint256 private _initialBlockNumber;
 
     event Deposit(address indexed user, uint256 amount, uint256 share);
     event Claim(address indexed user, uint256 share, uint256 amount);
@@ -113,6 +118,49 @@ contract sCFX is ISCFX, ERC20PresetMinterPauserUpgradeable {
         return IVotingEscrow(votingEscrow).userVotePower(user);
     }
 
+    function userLockInfo(address user) public view returns (IVotingEscrow.LockInfo memory) {
+        return IVotingEscrow(votingEscrow).userLockInfo(user);
+    }
+
+    function poolName() public pure returns (string memory) {
+        return POOL_NAME;
+    }
+
+    // total historical apy
+    function poolAPY() public view returns (uint256) {
+        if (_initialBlockNumber == 0) return 1000; // default is 10%
+        
+        uint256 ratioDifference = ratioDepositedBySupply() - _initialRatio;
+        uint256 blockSlaps = block.number - _initialBlockNumber;
+        uint256 apy = ratioDifference * 3600 * 24 * 365 / blockSlaps;
+        return apy * 10000 / RATIO_BASE; // change ratio base from 1e9 to 1e4
+    }
+
+    // methods to compatible with https://github.com/conflux-fans/pos-pool/blob/main/contract/contracts/eSpace/PoolBatchCallUtil.sol
+    // which is used in confluxhub.io's governance page
+    // it's new version will use 'userStakedInPoS' method instead
+    function userSummary(address _user) public view returns (IPoSPool.UserSummary memory) {
+        uint256 _scfxBalance = balanceOf(_user);
+        uint256 _balanceOfCfx = _scfxBalance * ratioDepositedBySupply() / RATIO_BASE;
+        // convert to Conflux PoS votes (1 vote = 1000 CFX), which will truncate the decimal part
+        uint64 _votes = uint64(_balanceOfCfx / 1000 ether);
+        uint256 _interest = _scfxBalance * (ratioDepositedBySupply() - RATIO_BASE) / RATIO_BASE;
+        
+        return IPoSPool.UserSummary({
+            votes: _votes,
+            available: _votes,
+            locked: _votes,
+            unlocked: 0, // sCFX do not have unlocked
+            claimedInterest: 0, // sCFX do not have accumulated interest
+            currentInterest: _interest
+        });
+    }
+
+    function userStakedInPoS(address _user) public view returns (uint256) {
+        uint256 _scfxBalance = balanceOf(_user);
+        return _scfxBalance * ratioDepositedBySupply() / RATIO_BASE;
+    }
+
     function redeemQueue() public view returns (RedeemQueue.Node[] memory) {
         RedeemQueue.Node[] memory nodes = new RedeemQueue.Node[](_redeemQueue.end - _redeemQueue.start);
         for (uint256 i = _redeemQueue.start; i < _redeemQueue.end; i++) {
@@ -152,6 +200,11 @@ contract sCFX is ISCFX, ERC20PresetMinterPauserUpgradeable {
 
     function setVotingEscrow(address escrow) public onlyRole(TOKEN_ADMIN_ROLE) {
         votingEscrow = escrow;
+    }
+
+    function setInitialRatio() public onlyRole(TOKEN_ADMIN_ROLE) {
+        _initialRatio = ratioDepositedBySupply();
+        _initialBlockNumber = block.number;
     }
 
     function _transferToBridge(uint256 amount) private {
