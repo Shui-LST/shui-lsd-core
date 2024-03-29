@@ -77,6 +77,7 @@ contract EVotingEscrow is IVotingEscrow, Ownable, Initializable {
     */
     function createLock(uint256 amount, uint256 unlockBlock) public {
         require(_userLockInfo[msg.sender].unlockBlock < coreBlockNumber(), "Governance: already locked");
+        require(stakedAmount[msg.sender] == 0, "Governance: already locked"); // need to withdraw existing staked amount first
         require(unlockBlock - coreBlockNumber() > QUARTER_BLOCK_NUMBER, "Governance: unlock block too close");
         
         uint256 realUnlockBlock = _adjustBlockNumber(unlockBlock);
@@ -144,8 +145,9 @@ contract EVotingEscrow is IVotingEscrow, Ownable, Initializable {
 
         sCFX.transfer(msg.sender, amount);
         stakedAmount[msg.sender] -= amount;
-        _userLockInfo[msg.sender].amount -= amount;
-        globalLockAmount[unlockBlock] -= amount;
+        
+        delete _userLockInfo[msg.sender];
+        globalLockAmount[unlockBlock] = 0; // as the lock period is expired, so we directly set it to 0
     }
 
     function userVotePower(address user, uint256 blockNumber) public view returns (uint256) {
