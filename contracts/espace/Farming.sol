@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.18;
+pragma solidity 0.8.18;
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata, IERC20} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract Farming is Ownable, Initializable {
     using EnumerableSet for EnumerableSet.UintSet;
+    using SafeERC20 for IERC20;
 
     struct FarmPool {
         uint256 id;
@@ -43,6 +45,10 @@ contract Farming is Ownable, Initializable {
     event UserWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event UserClaim(address indexed user, uint256 indexed pid, uint256 amount);
 
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize() public initializer {
         _transferOwnership(_msgSender());
     }
@@ -66,7 +72,7 @@ contract Farming is Ownable, Initializable {
         require(_amount > 0, "Farming: invalid amount");
 
         require(pool.stakeToken.allowance(msg.sender, address(this)) >= _amount, "Farming: not enough allowance");
-        pool.stakeToken.transferFrom(msg.sender, address(this), _amount);
+        pool.stakeToken.safeTransferFrom(msg.sender, address(this), _amount);
 
         poolStakeInfo[_pid].totalStaked += _amount;
         userStakeInfo[msg.sender][_pid].amount += _amount;
@@ -81,7 +87,7 @@ contract Farming is Ownable, Initializable {
         userStakeInfo[msg.sender][_pid].amount -= _amount;
 
         FarmPool memory pool = poolInfo[_pid];
-        pool.stakeToken.transfer(msg.sender, _amount);
+        pool.stakeToken.safeTransfer(msg.sender, _amount);
 
         emit UserWithdraw(msg.sender, _pid, _amount);
     }
@@ -92,7 +98,7 @@ contract Farming is Ownable, Initializable {
         uint256 _reward = userStakeInfo[msg.sender][_pid].reward;
         userStakeInfo[msg.sender][_pid].reward = 0;
 
-        poolInfo[_pid].rewardToken.transfer(msg.sender, _reward);
+        poolInfo[_pid].rewardToken.safeTransfer(msg.sender, _reward);
 
         emit UserClaim(msg.sender, _pid, _reward);
     }
@@ -137,7 +143,7 @@ contract Farming is Ownable, Initializable {
     function addPool(
         address _stakeToken,
         address _rewardToken,
-        uint256 _totalReward,
+        uint256 _rewardPerBlock,
         uint256 _startBlock,
         uint256 _endBlock,
         string memory _name
@@ -145,11 +151,14 @@ contract Farming is Ownable, Initializable {
         require(_startBlock > block.number, "Farming: invalid start block");
         require(_endBlock > _startBlock, "Farming: invalid end block");
 
+        require(IERC20Metadata(_rewardToken).decimals() == 18, "Farming: reward token decimals must be 18");
+        require(IERC20Metadata(_stakeToken).decimals() == 18, "Farming: stake token decimals must be 18");
+
+        uint256 _totalReward = _rewardPerBlock * (_endBlock - _startBlock);
         require(IERC20(_rewardToken).allowance(_msgSender(), address(this)) >= _totalReward, "Farming: not enough allowance");
-        IERC20(_rewardToken).transferFrom(_msgSender(), address(this), _totalReward);
+        IERC20(_rewardToken).safeTransferFrom(_msgSender(), address(this), _totalReward);
         
         uint256 _pid = nextPoolId++;
-        uint256 _rewardPerBlock = _totalReward / (_endBlock - _startBlock);
 
         poolInfo[_pid] = FarmPool({
             id: _pid,
