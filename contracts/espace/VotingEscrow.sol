@@ -42,7 +42,7 @@ contract EVotingEscrow is IVotingEscrow, Ownable, Initializable {
     // round => topic => users
     mapping(uint64 => mapping(uint16 => EnumerableSet.AddressSet)) internal topicSpecialVoters; // voters who's vote power maybe will change at round end block
     //
-    mapping(address => uint256) internal stakedAmount;
+    mapping(address => uint256) public stakedAmount;
     // user staked sCFX amount
 
 
@@ -58,11 +58,11 @@ contract EVotingEscrow is IVotingEscrow, Ownable, Initializable {
         coreSpaceInfo = ICoreSpaceInfo(coreSpaceInfoAddr);
     }
 
-    function coreVoteRound() internal view returns (uint64) {
+    function coreVoteRound() public view returns (uint64) {
         return coreSpaceInfo.currentVoteRound();
     }
 
-    function coreBlockNumber() internal view returns (uint256) {
+    function coreBlockNumber() public view returns (uint256) {
         return coreSpaceInfo.blockNumber();
     }
 

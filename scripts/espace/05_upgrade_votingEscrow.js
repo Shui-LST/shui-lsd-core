@@ -8,7 +8,7 @@ async function main() {
 
     const tx = await proxy.upgradeTo(VotingEscrow.target);
     await tx.wait();
-    console.log(`set VotingEscrow core bridge ${address.cfxMappedEVMSpaceAddress(process.env.sCFX_BRIDGE)}`);
+    console.log(`Upgrade to ${VotingEscrow.target}`);
 }
 
 main().catch((error) => {
