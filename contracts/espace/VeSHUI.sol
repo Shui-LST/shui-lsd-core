@@ -325,7 +325,8 @@ contract VeSHUI is IVeSHUI, ReentrancyGuardUpgradeable, OwnableUpgradeable {
 
     /***
      *@dev Deposit and lock tokens for a user
-     *@param _addr User's wallet address
+     *@param _provider Provider's wallet address
+     *@param _beneficiary Beneficiary's wallet address
      *@param _value Amount to deposit
      *@param _unlockTime New time when to unlock the tokens, or 0 if unchanged
      *@param _lockedBalance Previous locked amount / timestamp
@@ -580,23 +581,7 @@ contract VeSHUI is IVeSHUI, ReentrancyGuardUpgradeable, OwnableUpgradeable {
      *@return User's present voting power
      */
     function balanceOf(address _addr) external view returns (uint256) {
-        uint256 _t = block.timestamp;
-
-        uint256 _epoch = userPointEpoch[_addr];
-        if (_epoch == 0) {
-            return 0;
-        } else {
-            Point memory _lastPoint = userPointHistory[_addr][_epoch];
-            unchecked {
-                _lastPoint.bias -=
-                    _lastPoint.slope *
-                    int256(_t - _lastPoint.ts);
-            }
-            if (_lastPoint.bias < 0) {
-                _lastPoint.bias = 0;
-            }
-            return uint256(_lastPoint.bias);
-        }
+        return balanceOf(_addr, block.timestamp);
     }
 
     /***
