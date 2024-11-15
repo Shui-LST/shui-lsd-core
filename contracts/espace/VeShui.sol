@@ -104,7 +104,7 @@ contract veShui is Ownable, Initializable {
     }
 
     function depositProfit() public payable onlyOwner {
-        // require(msg.value > 0, "Amount must be greater than 0");
+        require(msg.value > 0, "Amount must be greater than 0");
 
         uint256 today = date(block.timestamp);
         require(today > lastSettleDay, "Already settled for today");
