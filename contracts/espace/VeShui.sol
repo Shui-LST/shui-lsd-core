@@ -249,7 +249,10 @@ contract veShui is Ownable, Initializable {
         emit Claimed(msg.sender, reward);
     }
 
-    function getUserInfo(address _user) public view returns (Lock[] memory, uint, uint, uint) {
+    function getUserInfo(address _user, uint time) public view returns (Lock[] memory, uint, uint, uint) {
+        uint _date = date(time);
+        require(_date >= lastSettleDay, "unspport query before last settle day");
+
         uint256[] memory lockIndexes = userInfos[_user].locks.values();
         Lock[] memory userLocks = new Lock[](lockIndexes.length);
         for (uint256 i = 0; i < lockIndexes.length; i++) {
@@ -261,15 +264,14 @@ contract veShui is Ownable, Initializable {
         uint totalVeShuiLastSettleDay = userInfos[_user].totalVeShui;
         uint totalVeShuiToday = totalVeShuiLastSettleDay;
 
-        uint today = date(block.timestamp);
         for (uint256 i = 0; i < lockIndexes.length; i++) {
             uint256 lockIndex = lockIndexes[i];
 
-            if (locks[lockIndex].lockDay <= today && !locks[lockIndex].isHandledLock) {
+            if (locks[lockIndex].lockDay <= _date && !locks[lockIndex].isHandledLock) {
                 totalVeShuiToday += locks[lockIndex].veShuiAmount;
             }
 
-            if (locks[lockIndex].unlockDay <= today && !locks[lockIndex].isHandledUnlock) {
+            if (locks[lockIndex].unlockDay <= _date && !locks[lockIndex].isHandledUnlock) {
                 unlockedShui += locks[lockIndex].amount;
                 totalVeShuiToday -= locks[lockIndex].veShuiAmount;
             }
@@ -280,18 +282,28 @@ contract veShui is Ownable, Initializable {
         return (userLocks, reward, unlockedShui, totalVeShuiToday);
     }
 
+    function getUserInfoNow(address _user) public view returns (Lock[] memory, uint, uint, uint) {
+        return getUserInfo(_user, block.timestamp);
+    }
+
+    function getUserInfoTommorow(address _user) public view returns (Lock[] memory, uint, uint, uint) {
+        return getUserInfo(_user, block.timestamp + 1 days);
+    }
+
     /// @return usersLength Number of users
     /// @return _totalVeShui Current total veShui amount
     /// @return _totalLocked Current total locked amount
     /// @return accRewardPerVeShui Current accCFXPerVeShui (average APR)
     /// @return lastSettleDay Last settlement date
     /// @return aprOnLastSettleDay APR on last settlement date
-    function summary() public view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
+    function summary(uint time) public view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
+        uint _date = date(time);
+        require(_date >= lastSettleDay, "unspport query before last settle day");
+
         uint _totalVeShui = totalVeShui;
         uint _totalLocked = totalLocked;
 
-        uint today = date(block.timestamp);
-        for (uint day = lastSettleDay + 1; day <= today; day++) {
+        for (uint day = lastSettleDay + 1; day <= _date; day++) {
             uint256[] memory _dayLocks = dayLocks[day];
             for (uint i = 0; i < _dayLocks.length; i++) {
                 if (!locks[_dayLocks[i]].isHandledLock) {
@@ -309,6 +321,14 @@ contract veShui is Ownable, Initializable {
         }
 
         return (users.length(), _totalVeShui, _totalLocked, accRewardPerVeShui, lastSettleDay, aprOnLastSettleDay);
+    }
+
+    function summaryNow() public view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
+        return summary(block.timestamp);
+    }
+
+    function summaryTommorow() public view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
+        return summary(block.timestamp + 1 days);
     }
 
     function getDayLocks(uint256 day) public view returns (uint256[] memory) {
