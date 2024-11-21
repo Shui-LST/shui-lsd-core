@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.18;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import "hardhat/console.sol";
@@ -20,8 +20,8 @@ contract veShui is Ownable, Initializable {
         address user;
         uint256 amount; // Amount of SHUI locked
         uint256 veShuiAmount; // Amount of veShui received for the lock
-        uint64 lockDay; // Timestamp when the lock is created
-        uint64 unlockDay; // Timestamp when the lock expires
+        uint64 lockDay; // Lock date
+        uint64 unlockDay; // Unlock date
         bool isHandledUnlock; // true means the amount has been counted into user's unlocked amount, but the lastSettleDay may be less than unlock time, so this object may not be deleted yet
         bool isHandledLock; // true means veShuiAmount has been added to user's total veShui
     }
@@ -37,11 +37,11 @@ contract veShui is Ownable, Initializable {
     mapping(uint256 => Lock) public locks; //  index => lock
     uint256 locksNextIndex;
 
-    mapping(uint256 => uint256[]) public dayLocks; // lock_time => lock_indexs
-    mapping(uint256 => EnumerableSet.AddressSet) dayLockUsers; // day => lock_users
+    mapping(uint256 => uint256[]) public dayLocks; // lock_date => lock_indexs
+    mapping(uint256 => EnumerableSet.AddressSet) dayLockUsers; // date => lock_users
 
-    mapping(uint256 => uint256[]) public dayUnlocks; // unlock_time => lock_indexs
-    mapping(uint256 => EnumerableSet.AddressSet) dayUnlockUsers; // day => unlock_users
+    mapping(uint256 => uint256[]) public dayUnlocks; // unlock_date => lock_indexs
+    mapping(uint256 => EnumerableSet.AddressSet) dayUnlockUsers; // date => unlock_users
 
     EnumerableSet.AddressSet users;
     mapping(address => UserInfo) userInfos; // user => user_info
@@ -50,14 +50,13 @@ contract veShui is Ownable, Initializable {
     uint256 private totalLocked;
     uint256 public accRewardPerVeShui; // Actual accumulated reward per veShui is accRewardPerVeShui/1e18
     uint256 public lastSettleDay; // The most recent date for processing unlocks and settlements. Updates: UserInfo.userRewardPerTokenPaid+reward+locks+totalVeShui+unlockedShui / accRewardPerVeShui/ remove expired dayUnlockUsers/totalVeShui/ remove expired locks/ remove expired dayUnlocks/ remove expired UserInfo locks
-    uint256 public aprOnLastSeetleDay; // Unit: cfxPerVeShui
+    uint256 public aprOnLastSettleDay; // Unit: cfxPerVeShui
 
     event Locked(uint indexed lockIndex, address indexed user, uint256 amount, uint256 veShuiAmount, uint256 unlockDay);
     event Unlocked(address indexed user, uint256 amount);
     event Withdrawed(address indexed user, uint256 reward);
     event Claimed(address indexed user, uint256 reward);
     event CFXDeposited(uint256 amount);
-
 
     constructor() {
         _disableInitializers();
@@ -166,13 +165,8 @@ contract veShui is Ownable, Initializable {
             uint256 lockIndex = todayUnlocks[i];
             Lock memory _lock = locks[lockIndex];
 
-            if (!_lock.isHandledUnlock) {
-                userInfos[_lock.user].totalVeShui -= _lock.veShuiAmount;
-                totalLocked -= _lock.amount;
-            }
-
-            userInfos[_lock.user].unlockedShui += _lock.amount;
-            totalVeShui -= _lock.veShuiAmount;
+            unlockShuiButNotReleaseVeShui(lockIndex);
+            releaseVeshui(_lock);
 
             delete locks[lockIndex];
             userInfos[_lock.user].locks.remove(lockIndex);
@@ -182,8 +176,26 @@ contract veShui is Ownable, Initializable {
         return totalVeShui;
     }
 
+    function unlockShuiButNotReleaseVeShui(uint lockIndex) private {
+        Lock memory _lock = locks[lockIndex];
+        if (!_lock.isHandledUnlock) {
+            userInfos[_lock.user].unlockedShui += _lock.amount;
+            totalLocked -= _lock.amount;
+            locks[lockIndex].isHandledUnlock = true;
+        }
+    }
+
+    function releaseVeshui(Lock memory _lock) private {
+        userInfos[_lock.user].totalVeShui -= _lock.veShuiAmount;
+        totalVeShui -= _lock.veShuiAmount;
+    }
+
     function handleProfitOfDay(uint day, uint dayTotalVeshui, uint256 profit) private {
-        accRewardPerVeShui += (profit * 1e18) / dayTotalVeshui;
+        if (dayTotalVeshui == 0) {
+            require(profit == 0, "Profit must be 0 when dayTotalVeshui is 0");
+        } else {
+            accRewardPerVeShui += (profit * 1e18) / dayTotalVeshui;
+        }
 
         address[] memory todayLockUsers = dayLockUsers[day].values();
         for (uint i = 0; i < todayLockUsers.length; i++) {
@@ -198,13 +210,11 @@ contract veShui is Ownable, Initializable {
         delete dayUnlockUsers[day];
 
         lastSettleDay = day;
-        aprOnLastSeetleDay = (profit * 1e18 * 365) / totalVeShui;
+        aprOnLastSettleDay = (profit * 1e18 * 365) / totalVeShui;
     }
 
     function settleUser(address user) private {
-        userInfos[user].reward +=
-            (userInfos[user].totalVeShui * (accRewardPerVeShui - userInfos[user].userRewardPerTokenPaid)) /
-            1e18;
+        userInfos[user].reward += (userInfos[user].totalVeShui * (accRewardPerVeShui - userInfos[user].userRewardPerTokenPaid)) / 1e18;
         userInfos[user].userRewardPerTokenPaid = accRewardPerVeShui;
     }
 
@@ -214,10 +224,8 @@ contract veShui is Ownable, Initializable {
 
         for (uint256 i = 0; i < lockIndexes.length; i++) {
             uint256 lockIndex = lockIndexes[i];
-            if (locks[lockIndex].unlockDay <= today && !locks[lockIndex].isHandledUnlock) {
-                userInfos[msg.sender].unlockedShui += locks[lockIndex].amount;
-                totalLocked -= locks[lockIndex].amount;
-                locks[lockIndex].isHandledUnlock = true;
+            if (locks[lockIndex].unlockDay <= today) {
+                unlockShuiButNotReleaseVeShui(lockIndex);
             }
         }
 
@@ -250,25 +258,26 @@ contract veShui is Ownable, Initializable {
 
         uint reward = userInfos[_user].reward;
         uint unlockedShui = userInfos[_user].unlockedShui;
-        uint _totalVeShui = userInfos[_user].totalVeShui;
+        uint totalVeShuiLastSettleDay = userInfos[_user].totalVeShui;
+        uint totalVeShuiToday = totalVeShuiLastSettleDay;
 
         uint today = date(block.timestamp);
         for (uint256 i = 0; i < lockIndexes.length; i++) {
             uint256 lockIndex = lockIndexes[i];
 
             if (locks[lockIndex].lockDay <= today && !locks[lockIndex].isHandledLock) {
-                _totalVeShui += locks[lockIndex].veShuiAmount;
+                totalVeShuiToday += locks[lockIndex].veShuiAmount;
             }
 
             if (locks[lockIndex].unlockDay <= today && !locks[lockIndex].isHandledUnlock) {
                 unlockedShui += locks[lockIndex].amount;
-                _totalVeShui -= locks[lockIndex].veShuiAmount;
+                totalVeShuiToday -= locks[lockIndex].veShuiAmount;
             }
         }
 
-        reward += (_totalVeShui * (accRewardPerVeShui - userInfos[_user].userRewardPerTokenPaid)) / 1e18;
+        reward += (totalVeShuiLastSettleDay * (accRewardPerVeShui - userInfos[_user].userRewardPerTokenPaid)) / 1e18;
 
-        return (userLocks, reward, unlockedShui, _totalVeShui);
+        return (userLocks, reward, unlockedShui, totalVeShuiToday);
     }
 
     /// @return usersLength Number of users
@@ -299,7 +308,7 @@ contract veShui is Ownable, Initializable {
             }
         }
 
-        return (users.length(), _totalVeShui, _totalLocked, accRewardPerVeShui, lastSettleDay, aprOnLastSeetleDay);
+        return (users.length(), _totalVeShui, _totalLocked, accRewardPerVeShui, lastSettleDay, aprOnLastSettleDay);
     }
 
     function getDayLocks(uint256 day) public view returns (uint256[] memory) {
@@ -319,10 +328,7 @@ contract veShui is Ownable, Initializable {
     }
 
     function calculateVeShui(uint256 _amount, uint256 _lockPeriod) public pure returns (uint256) {
-        require(
-            _lockPeriod == 50 || _lockPeriod == 100 || _lockPeriod == 200 || _lockPeriod == 400,
-            "Invalid lock period"
-        );
+        require(_lockPeriod == 50 || _lockPeriod == 100 || _lockPeriod == 200 || _lockPeriod == 400, "Invalid lock period");
         return (_amount * _lockPeriod) / 4 / PERIOD_YEAR;
     }
 
