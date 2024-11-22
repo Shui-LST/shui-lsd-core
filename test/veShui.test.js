@@ -499,4 +499,12 @@ describe("VeShui", async function () {
             await expect(veShui.calculateVeShui(amount, lockDuration)).to.be.revertedWith(errorMessages.invalidLockDuration);
         })
     })
+
+    describe("ProfitAwaiting", function () {
+        it("should work", async function () {
+            const { veShui } = await deployVeShuiFixture();
+            const profit = await veShui.profitAwaiting();
+            expect(profit).to.equal(0n);
+        })
+    })
 });
