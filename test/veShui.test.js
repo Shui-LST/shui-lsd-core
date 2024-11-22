@@ -17,7 +17,9 @@ const errorMessages = {
     noUnlockedShui: "No unlocked shui",
     alreadySettled: "Already settled for today",
     noReward: "No reward",
-    onlyOwner: "Ownable: caller is not the owner"
+    onlyOwner: "Ownable: caller is not the owner",
+    profitAwaitingIsZero: "Profit amount must be greater than 0",
+    profitMustBeZeroWhenDayTotalVeshuiIsZero: "Profit must be 0 when dayTotalVeshui is 0"
 };
 
 describe("VeShui", async function () {
@@ -189,7 +191,7 @@ describe("VeShui", async function () {
 
     describe("Lock", function () {
         it("should user state correct after lock", async function () {
-            const { veShui, shui, user1 } = await deployVeShuiWithTokenFixture();
+            const { owner, veShui, shui, user1 } = await deployVeShuiWithTokenFixture();
             const amount = ethers.parseEther("100");
             const lockDuration = 50; // 0.5 year
 
@@ -212,7 +214,7 @@ describe("VeShui", async function () {
             const dayUnlockUsers = await veShui.getDayUnlockUsers(expectUnlockDay);
             expect(dayUnlockUsers.length).to.equal(1);
 
-            let userInfo = await veShui.getUserInfo(user1.address);
+            let userInfo = await veShui.getUserInfoNow(user1.address);
             let [userLocks, reward, unlockedShui, userTotalVeShui] = userInfo
             expect(reward).to.equal(0);
             expect(unlockedShui).to.equal(0);
@@ -227,7 +229,7 @@ describe("VeShui", async function () {
 
             // After 1 day, userTotalVeShui should increase
             await time.increase(ONE_DAY);
-            userInfo = await veShui.getUserInfo(user1.address);
+            userInfo = await veShui.getUserInfoNow(user1.address);
             [userLocks, reward, unlockedShui, userTotalVeShui] = userInfo
             expect(reward).to.equal(0);
             expect(unlockedShui).to.equal(0);
@@ -241,8 +243,10 @@ describe("VeShui", async function () {
             expect(isHandledLock).to.be.false;
 
             // After distributing profit, isHandledLock should be true
-            await veShui.depositProfit({ value: 1000n });
-            userInfo = await veShui.getUserInfo(user1.address);
+
+            await owner.sendTransaction({ value: 1000n, to: veShui.target });
+            await veShui.distributeProfit();
+            userInfo = await veShui.getUserInfoNow(user1.address);
             [userLocks, reward, unlockedShui, userTotalVeShui] = userInfo
             // console.log("userInfo", userInfo)
             // console.log("userlocks[0]", userLocks[0])
@@ -289,10 +293,12 @@ describe("VeShui", async function () {
 
     describe("Withdraw", function () {
         it("should withdraw unlocked success", async function () {
-            const { shui, veShui, user1, lockedAmount, user1UnlockDay } = await usersLockInDiffDayFixture();
+            const { owner, shui, veShui, user1, lockedAmount, user1UnlockDay } = await usersLockInDiffDayFixture();
 
             await time.increaseTo(user1UnlockDay * toBigInt(ONE_DAY) + 1n);
-            await veShui.depositProfit({ value: 1000n });
+
+            await owner.sendTransaction({ value: 1000n, to: veShui.target });
+            await veShui.distributeProfit();
 
             const userShuiBeforeWithdraw = await shui.balanceOf(user1.address);
             await veShui.connect(user1).withdraw();
@@ -317,27 +323,34 @@ describe("VeShui", async function () {
 
             // Fast forward to user1UnlockDay
             await time.increaseTo(user1UnlockDay * toBigInt(ONE_DAY) + 1n);
-            await veShui.depositProfit({ value: profit });
+            await owner.sendTransaction({ value: profit, to: veShui.target });
+            await veShui.distributeProfit();
 
-            const summary = await veShui.summary();
-            const [usersLength, totalVeShui, totalLocked, accRewardPerVeShui, lastSettleDay, aprOnLastSeetleDay] = summary
+            const summary = await veShui.summaryNow();
+            const [usersLength, totalVeShui, totalLocked, accRewardPerVeShui, lastSettleDay, aprOnLastSeetleTime] = summary
             expect(usersLength).to.equal(2);
             expect(totalVeShui).to.equal(user2VeShuiAmount);
             expect(totalLocked).to.equal(lockedAmount);
             expect(accRewardPerVeShui).to.equal(8092896174863110n);
             expect(lastSettleDay).to.equal(user1UnlockDay);
-            expect(aprOnLastSeetleDay).to.equal(9972677595628411n);
+            expect(aprOnLastSeetleTime).to.equal(9972680749304527n);
         })
     })
 
     // After successfully depositing CFX, check if expired locks are unlocked, if rewards are distributed correctly, if userInfos fields are correct, if expired locks are removed, if expired dates are removed from dayUnlocks
-    describe("DepositProfit", function () {
-        it("should fail if not owner invode", async function () {
-            const { veShui, owner, user1 } = await deployVeShuiFixture();
+    describe("DistributeProfit", function () {
+        it("should distribute profit success by anyone", async function () {
+            const { veShui, owner, user1 } = await usersLockInSameDayFixture();
 
-            await expect(
-                veShui.connect(user1).depositProfit({ value: 1000n })
-            ).to.be.revertedWith(errorMessages.onlyOwner);
+            await time.increase(ONE_DAY)
+            await owner.sendTransaction({ value: 1000n, to: veShui.target });
+            await veShui.connect(user1).distributeProfit();
+        });
+
+        it("should fail when profit is not 0 but totalVeShui is 0", async function () {
+            const { veShui, owner, user1 } = await usersLockInSameDayFixture();
+            await owner.sendTransaction({ value: 1000n, to: veShui.target });
+            await expect(veShui.distributeProfit()).to.be.revertedWith(errorMessages.profitMustBeZeroWhenDayTotalVeshuiIsZero);
         });
 
         it("should distribute correct", async function () {
@@ -351,13 +364,14 @@ describe("VeShui", async function () {
             await time.increase(ONE_DAY);
 
             // deposit cfx
-            await veShui.depositProfit({ value: 1000n });
+            await owner.sendTransaction({ value: 1000n, to: veShui.target });
+            await veShui.distributeProfit();
 
             // 500/25 + 500/125 = 0.024
             await expect(veShui.accRewardPerVeShui()).to.eventually.equal(24n);
 
             // user1 rewards should be distributed correctly
-            const user1Info = await veShui.getUserInfo(user1.address);
+            const user1Info = await veShui.getUserInfoNow(user1.address);
             const [user1Locks, reward, unlockedShui, _totalVeShui] = user1Info
             expect(user1Locks).to.have.lengthOf(1);
             expect(user1Locks[0][6]).to.be.true;
@@ -375,20 +389,51 @@ describe("VeShui", async function () {
             // set time to one day after user1UnlockDay
             await time.increaseTo((user1UnlockDay) * toBigInt(ONE_DAY) + 1n);
 
-            // deposit cfx
             await expect(veShui.getDayUnlocks(user1UnlockDay)).to.eventually.have.lengthOf(1);
             await expect(veShui.getDayUnlockUsers(user1UnlockDay)).to.eventually.have.lengthOf(1);
 
-            await veShui.depositProfit({ value: profit });
+            await owner.sendTransaction({ value: profit, to: veShui.target });
+            await veShui.distributeProfit();
 
             await expect(veShui.getDayUnlocks(user1UnlockDay), "dayUnlocks should be empty").to.eventually.have.lengthOf(0);
             await expect(veShui.getDayUnlockUsers(user1UnlockDay), "dayUnlockUsers should be empty").to.eventually.have.lengthOf(0);
             await expect(veShui.locks(0), "lock should be deleted").to.eventually.be.reverted;
         });
 
-        it("should failed if already depositProfit", async function () {
-            const { veShui } = await deployVeShuiFixture();
-            await expect(veShui.depositProfit({ value: 1000n })).to.be.revertedWith(errorMessages.alreadySettled);
+        it("should work if depositProfit multi times one day", async function () {
+            const { veShui, shui, owner, user1, lockedAmount, user1VeShuiAmount, user2VeShuiAmount, user1UnlockDay, user2UnlockDay } = await usersLockInSameDayFixture();
+
+            await time.increase(ONE_DAY);
+
+            const profit = 1000n
+            await owner.sendTransaction({ value: profit, to: veShui.target });
+            await veShui.distributeProfit();
+            await expect(veShui.accRewardPerVeShui()).to.eventually.equal(1000n * ethers.parseEther("1") / (user1VeShuiAmount + user2VeShuiAmount));
+            // 收益分配正确
+            await owner.sendTransaction({ value: profit, to: veShui.target });
+            await veShui.distributeProfit();
+            await expect(veShui.accRewardPerVeShui()).to.eventually.equal(2000n * ethers.parseEther("1") / (user1VeShuiAmount + user2VeShuiAmount));
+
+        });
+
+        it("should failed if profitAwaiting is 0", async function () {
+            const { veShui, shui, owner, user1, lockedAmount, user1VeShuiAmount, user2VeShuiAmount, user1UnlockDay, user2UnlockDay } = await usersLockInDiffDayFixture();
+            await expect(veShui.distributeProfit()).to.be.revertedWith(errorMessages.profitAwaitingIsZero);
+        });
+
+        it("should work if user locks num > 100 on same day", async function () {
+            const { veShui, shui, owner, user1} = await deployVeShuiWithTokenFixture();
+            const lockedAmount = 100n;
+
+            for (let i = 0; i < 100; i++) {
+                const user1LockPeroid = PERIOD_YEAR
+                await shui.connect(user1).approve(veShui, lockedAmount);
+                await veShui.connect(user1).lock(lockedAmount, user1LockPeroid);
+            }
+
+            await time.increase(ONE_DAY);
+            await owner.sendTransaction({ value: 1000n, to: veShui.target });
+            await veShui.distributeProfit();
         });
     });
 
@@ -397,7 +442,9 @@ describe("VeShui", async function () {
             const { veShui, shui, owner, user1, lockedAmount, user1VeShuiAmount, user2VeShuiAmount, user1UnlockDay, user2UnlockDay } = await usersLockInSameDayFixture();
 
             await time.increase(ONE_DAY);
-            await veShui.depositProfit({ value: 1000n });
+
+            await owner.sendTransaction({ value: 1000n, to: veShui.target });
+            await veShui.distributeProfit();
 
             const cfxBeforeClaim = await ethers.provider.getBalance(user1.address);
             const tx = await veShui.connect(user1).claim();

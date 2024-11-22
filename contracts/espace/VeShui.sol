@@ -2,19 +2,19 @@
 pragma solidity ^0.8.18;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import "hardhat/console.sol";
 
-contract veShui is Ownable, Initializable {
+contract veShui is Initializable {
     using EnumerableSet for EnumerableSet.AddressSet; // Add the library methods
     using EnumerableSet for EnumerableSet.UintSet;
-
-    uint public constant ONE_YEAR = 365 days;
-    uint public constant PERIOD_YEAR = 100; // Denominator for calculating lock time, e.g. period of 100 means 1 year
-
-    IERC20 public shuiToken; // SHUI token interface
+    event Locked(uint indexed lockIndex, address indexed user, uint256 amount, uint256 veShuiAmount, uint256 unlockDay);
+    event Unlocked(address indexed user, uint256 amount);
+    event Withdrawed(address indexed user, uint256 reward);
+    event Claimed(address indexed user, uint256 reward);
+    event DistributedProfit(uint256 amount, uint256 date);
+    event ReceivedCfx(address indexed sender, uint256 amount);
 
     struct Lock {
         address user;
@@ -34,6 +34,14 @@ contract veShui is Ownable, Initializable {
         uint256 totalVeShui;
     }
 
+    bytes32 public constant SUPER_ADMIN_ROLE = keccak256("SUPER_ADMIN_ROLE");
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+
+    uint public constant ONE_YEAR = 365 days;
+    uint public constant PERIOD_YEAR = 100; // Denominator for calculating lock time, e.g. period of 100 means 1 year
+
+    IERC20 public shuiToken; // SHUI token interface
+
     mapping(uint256 => Lock) public locks; //  index => lock
     uint256 locksNextIndex;
 
@@ -46,26 +54,28 @@ contract veShui is Ownable, Initializable {
     EnumerableSet.AddressSet users;
     mapping(address => UserInfo) userInfos; // user => user_info
 
+    uint256 public profitAwaiting; // profit awaiting to be distributed
     uint256 private totalVeShui;
     uint256 private totalLocked;
     uint256 public accRewardPerVeShui; // Actual accumulated reward per veShui is accRewardPerVeShui/1e18
     uint256 public lastSettleDay; // The most recent date for processing unlocks and settlements. Updates: UserInfo.userRewardPerTokenPaid+reward+locks+totalVeShui+unlockedShui / accRewardPerVeShui/ remove expired dayUnlockUsers/totalVeShui/ remove expired locks/ remove expired dayUnlocks/ remove expired UserInfo locks
-    uint256 public aprOnLastSettleDay; // Unit: cfxPerVeShui
-
-    event Locked(uint indexed lockIndex, address indexed user, uint256 amount, uint256 veShuiAmount, uint256 unlockDay);
-    event Unlocked(address indexed user, uint256 amount);
-    event Withdrawed(address indexed user, uint256 reward);
-    event Claimed(address indexed user, uint256 reward);
-    event CFXDeposited(uint256 amount);
+    uint256 public lastSettleTime; // For calculating APR
+    uint256 public aprOnLastSettleTime; // Unit: cfxPerVeShui
 
     constructor() {
         _disableInitializers();
     }
 
+    receive() external payable {
+        require(msg.value > 0, "Amount must be greater than 0");
+        profitAwaiting += msg.value;
+        emit ReceivedCfx(msg.sender, msg.value);
+    }
+
     function initialize(address _shuiToken) public initializer {
-        _transferOwnership(_msgSender());
         shuiToken = IERC20(_shuiToken);
         lastSettleDay = date(block.timestamp);
+        lastSettleTime = block.timestamp;
     }
 
     function lock(uint256 _amount, uint256 _lockPeriod) external {
@@ -102,18 +112,25 @@ contract veShui is Ownable, Initializable {
         return lockIndex;
     }
 
-    function depositProfit() public payable onlyOwner {
-        require(msg.value > 0, "Amount must be greater than 0");
-
+    function distributeProfit() external {
         uint256 today = date(block.timestamp);
-        require(today > lastSettleDay, "Already settled for today");
-
-        processPendingLocksAndDistributeRewards(msg.value, today);
-        emit CFXDeposited(msg.value);
+        processPendingLocksAndDistributeRewards(profitAwaiting, today);
+        emit DistributedProfit(profitAwaiting, today);
     }
 
     // Distribute rewards before 00:00 every day by default, so rewards are from lastSettleDay to today.
     function processPendingLocksAndDistributeRewards(uint256 _amount, uint256 endDay) private {
+        require(_amount > 0, "Profit amount must be greater than 0");
+
+        // If the endDay is the lastSettleDay, it means that the profit is distributed today, so the all lock state will not change today, distribute directly.
+        if (endDay == lastSettleDay) {
+            console.log("processPendingLocksAndDistributeRewards: amount", _amount, "totalVeShui", totalVeShui);
+            handleProfitOfDay(endDay, totalVeShui, _amount);
+            profitAwaiting = 0;
+            updateApr(_amount);
+            return;
+        }
+
         uint256[] memory dayTotalVeshuis = new uint256[](endDay - lastSettleDay);
 
         uint startDay = lastSettleDay + 1;
@@ -134,10 +151,17 @@ contract veShui is Ownable, Initializable {
         require(validDayNum > 0, "No valid veShui from last settle day to today");
 
         uint256 dayProfit = _amount / validDayNum;
+        profitAwaiting -= dayProfit * validDayNum; // Handling cases where division may not be exact
 
         for (uint256 day = startDay; day <= endDay; day++) {
             handleProfitOfDay(day, dayTotalVeshuis[day - startDay], dayProfit);
         }
+        updateApr(_amount);
+    }
+
+    function updateApr(uint256 _amount) private {
+        aprOnLastSettleTime = (_amount * 1e18 * ONE_YEAR) / (block.timestamp - lastSettleTime) / totalVeShui;
+        lastSettleTime = block.timestamp;
     }
 
     function handleLocksOfDay(uint day) private returns (uint256) {
@@ -193,8 +217,11 @@ contract veShui is Ownable, Initializable {
     function handleProfitOfDay(uint day, uint dayTotalVeshui, uint256 profit) private {
         if (dayTotalVeshui == 0) {
             require(profit == 0, "Profit must be 0 when dayTotalVeshui is 0");
-        } else {
-            accRewardPerVeShui += (profit * 1e18) / dayTotalVeshui;
+        }
+
+        if (lastSettleDay == day) {
+            updateAccReward(dayTotalVeshui, profit);
+            return;
         }
 
         address[] memory todayLockUsers = dayLockUsers[day].values();
@@ -210,7 +237,11 @@ contract veShui is Ownable, Initializable {
         delete dayUnlockUsers[day];
 
         lastSettleDay = day;
-        aprOnLastSettleDay = (profit * 1e18 * 365) / totalVeShui;
+        updateAccReward(dayTotalVeshui, profit);
+    }
+
+    function updateAccReward(uint dayTotalVeshui, uint256 profit) private {
+        accRewardPerVeShui += (profit * 1e18) / dayTotalVeshui;
     }
 
     function settleUser(address user) private {
@@ -320,7 +351,7 @@ contract veShui is Ownable, Initializable {
             }
         }
 
-        return (users.length(), _totalVeShui, _totalLocked, accRewardPerVeShui, lastSettleDay, aprOnLastSettleDay);
+        return (users.length(), _totalVeShui, _totalLocked, accRewardPerVeShui, lastSettleDay, aprOnLastSettleTime);
     }
 
     function summaryNow() public view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
