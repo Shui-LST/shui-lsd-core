@@ -5,9 +5,10 @@ const { VESHUI, E_SPACE_RPC } = process.env;
 const provider = new ethers.JsonRpcProvider(E_SPACE_RPC)
 
 async function run() {
-    const veShui = new ethers.Contract(VESHUI, abi, provider)
-    const profit = await veShui.profitAwaiting()
-    console.log(profit)
+    setInterval(async function () {
+        const veShui = new ethers.Contract(VESHUI, abi, provider)
+        const profit = await veShui.profitAwaiting()
+        console.log(profit)
+    }, 1000 * 60 * 60)
 }
-
 run()

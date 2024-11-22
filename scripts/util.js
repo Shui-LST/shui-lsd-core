@@ -20,7 +20,8 @@ const abiCoder = ethers.AbiCoder.defaultAbiCoder();
 
 function abiEncode(method, paramsTypes, paramsValues) {
     const selector = ethers.id(method).slice(0, 10);
-    return selector + abiCoder.encode(paramsTypes, paramsValues);
+    const data = abiCoder.encode(paramsTypes, paramsValues);
+    return selector + data.replace("0x", "");
 }
 
 function encodeEmptyInitialize() {
@@ -31,9 +32,7 @@ function encodeEmptyInitialize() {
 
 function encodeInitalizeWithData(paramsTypes, paramsValues) {
     const initializeSignature = `initialize(${paramsTypes.join(",")})`;
-    const initializeSelector = ethers.id(initializeSignature).slice(0, 10);
-    const data = abiCoder.encode(paramsTypes, paramsValues);
-    return initializeSelector + data.replace("0x", "");
+    return abiEncode(initializeSignature, paramsTypes, paramsValues);
 }
 
 module.exports = {
