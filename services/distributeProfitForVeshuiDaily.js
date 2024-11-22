@@ -8,7 +8,13 @@ async function run() {
     setInterval(async function () {
         const veShui = new ethers.Contract(VESHUI, abi, provider)
         const profit = await veShui.profitAwaiting()
-        console.log(profit)
+        if (profit == 0n) {
+            console.log("profit is 0, skip distribute")
+            return
+        }
+
+        await veShui.distributeProfit()
+        console.log("distribute profit for veShui daily", profit)
     }, 1000 * 60 * 60)
 }
 run()
