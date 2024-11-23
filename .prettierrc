@@ -1,0 +1,12 @@
+{
+  "plugins": ["prettier-plugin-solidity"],
+  "overrides": [
+    {
+      "files": ["*.sol"],
+      "options": {
+        "printWidth": 140,  
+        "tabWidth": 4       
+      }
+    }
+  ]
+}

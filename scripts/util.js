@@ -1,4 +1,5 @@
 const { sign, format } = require("js-conflux-sdk");
+const { ethers } = require("ethers");
 
 function loadPrivateKey(keyName) {
     const val = process.env[keyName];
@@ -13,6 +14,30 @@ function loadPrivateKey(keyName) {
     }
 }
 
+
+
+const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+
+function abiEncode(method, paramsTypes, paramsValues) {
+    const selector = ethers.id(method).slice(0, 10);
+    const data = abiCoder.encode(paramsTypes, paramsValues);
+    return selector + data.replace("0x", "");
+}
+
+function encodeEmptyInitialize() {
+    const initializeSignature = "initialize()";
+    const initializeSelector = ethers.id(initializeSignature).slice(0, 10);
+    return initializeSelector;
+}
+
+function encodeInitalizeWithData(paramsTypes, paramsValues) {
+    const initializeSignature = `initialize(${paramsTypes.join(",")})`;
+    return abiEncode(initializeSignature, paramsTypes, paramsValues);
+}
+
 module.exports = {
     loadPrivateKey,
+    abiEncode,
+    encodeEmptyInitialize,
+    encodeInitalizeWithData
 };

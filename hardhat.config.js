@@ -9,6 +9,7 @@ require('solidity-coverage')
 require("@nomicfoundation/hardhat-toolbox");
 require("@nomicfoundation/hardhat-chai-matchers")
 require("hardhat-abi-exporter");
+require("hardhat-gas-reporter");
 
 // const chai = require("chai");
 // const chaiAsPromised = require('chai-as-promised');
@@ -17,6 +18,7 @@ require("hardhat-abi-exporter");
 // chai.use(chaiEventEmitter());
 
 require("dotenv").config();
+Error.stackTraceLimit = Infinity;
 
 const { loadPrivateKey } = require("./scripts/util");
 const cPRIVATE_KEY = loadPrivateKey('cPRIVATE_KEY');
@@ -93,5 +95,8 @@ module.exports = {
         spacing: 2,
         pretty: true,
         // format: "minimal",
+    },
+    gasReporter: {
+        enabled: true
     }
 };
