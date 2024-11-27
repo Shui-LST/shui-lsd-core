@@ -60,7 +60,7 @@ async function updatePosRewardInfo(epoch) {
     }
 }
 
-async function updatePosAccountInfo() {
+/* async function updatePosAccountInfo() {
     try {
         const status = await conflux.pos.getStatus();
         const accountInfo = await conflux.pos.getAccount(POS_POOL_POS_ACCOUNT);
@@ -100,7 +100,7 @@ async function updatePosAccountInfo() {
     } catch (e) {
         console.error("updatePosAccountInfo", e);
     }
-}
+} */
 
 async function updateUserVotes() {
     try {

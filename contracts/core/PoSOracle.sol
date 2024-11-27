@@ -15,20 +15,20 @@ contract PoSOracle is Ownable, IPoSOracle {
     mapping(uint256 => mapping(address => IPoSOracle.RewardInfo)) private _rewardInfos; // epochNumber => (powAccount => RewardInfo)
     mapping(uint256 => mapping(address => uint256)) private _userVoteInfos; // epochNumber => (powAccount => availableVotes)
 
-    /**
-     * @dev update account current, user vote info, pos epoch height
-     * @param account pos address
-     * @param epochNumber pos epoch number
-     * @param blockNumber  pos block number
-     * @param availableVotes available votes
-     * @param unlocked unlocked votes
-     * @param locked locked votes
-     * @param forfeited pos node forfeited votes
-     * @param forceRetired is pos node force retired
-     * @param inQueue node in queue info
-     * @param outQueue node out queue info
-     */
-    function updatePoSAccountInfo(
+    // /**
+    //  * @dev update account current, user vote info, pos epoch height
+    //  * @param account pos address
+    //  * @param epochNumber pos epoch number
+    //  * @param blockNumber  pos block number
+    //  * @param availableVotes available votes
+    //  * @param unlocked unlocked votes
+    //  * @param locked locked votes
+    //  * @param forfeited pos node forfeited votes
+    //  * @param forceRetired is pos node force retired
+    //  * @param inQueue node in queue info
+    //  * @param outQueue node out queue info
+    //  */
+    /* function updatePoSAccountInfo(
         bytes32 account,
         uint256 epochNumber,
         uint256 blockNumber,
@@ -63,7 +63,7 @@ contract PoSOracle is Ownable, IPoSOracle {
 
         // update posEpochHeight
         updatePoSEpochHeight(epochNumber);
-    }
+    } */
 
     function updatePoSRewardInfo(uint256 epoch, address powAddress, bytes32 posAddress, uint256 reward)
         public
@@ -74,6 +74,13 @@ contract PoSOracle is Ownable, IPoSOracle {
         _rewardInfos[epoch][powAddress].reward = reward;
     }
 
+    function clearEpochData(uint256 startEpoch, uint256 endEpoch, address addr) public onlyOwner {
+        for (uint256 i = startEpoch; i <= endEpoch; i++) {
+            delete _rewardInfos[i][addr];
+            delete _userVoteInfos[i][addr];
+        }
+    }
+
     function updatePoSEpochHeight(uint256 latestPoSEpochHeight) public onlyOwner {
         posEpochHeight = latestPoSEpochHeight;
     }
@@ -82,6 +89,11 @@ contract PoSOracle is Ownable, IPoSOracle {
         _userVoteInfos[epoch][powAddr] = availableVotes;
         // update posEpochHeight
         updatePoSEpochHeight(epoch);
+        
+        // clear data before 100 epochs to save storage
+        if (epoch > 200) {
+            clearEpochData(epoch - 200, epoch - 100, powAddr);
+        }
     }
 
     function getPoSAccountInfo(bytes32 posAddr) public view returns (IPoSOracle.PoSAccountInfo memory) {
